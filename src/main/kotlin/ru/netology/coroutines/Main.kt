@@ -5,9 +5,7 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 import okhttp3.*
 import okhttp3.logging.HttpLoggingInterceptor
-import ru.netology.coroutines.dto.Author
-import ru.netology.coroutines.dto.Comment
-import ru.netology.coroutines.dto.Post
+import ru.netology.coroutines.dto.*
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.EmptyCoroutineContext
@@ -29,35 +27,44 @@ import kotlin.coroutines.suspendCoroutine
                 .url(url)
                 .build()
                 .let(::newCall).enqueue(object : Callback {
-                    override fun onFailure(call: Call, e: IOException) {
-                        continuation.resumeWithException(e)
-                    }
-
                     override fun onResponse(call: Call, response: Response) {
                         continuation.resume(response)
+                    }
+                    override fun onFailure(call: Call, e: IOException) {
+                        continuation.resumeWithException(e)
                     }
                 })
         }
     }
 
-    private suspend fun <T> makeRequest(url: String, typeToken: TypeToken<T>): T =
+    private suspend fun <T> makeRequest(url: String, client: OkHttpClient, typeToken: TypeToken<T>): T =
         withContext(Dispatchers.IO) {
             gson.fromJson(client.apiCall(url).body?.string(), typeToken)
         }
 
     fun main(){
         CoroutineScope(EmptyCoroutineContext).launch {
-            val posts = makeRequest(url = "$BASE_URL/api/slow/posts", object : TypeToken<List<Post>>() {})
-            posts.map { post ->
-                async { makeRequest(url = "$BASE_URL/api/slow/authors/${post.id}", object : TypeToken<Author>() {})
-                }
-                async {val comments = makeRequest(url = "$BASE_URL/api/slow/posts/${post.id}/comments", object : TypeToken<List<Comment>>() {})
-                    comments.map { comment ->
-                        async { makeRequest(url = "$BASE_URL/api/slow/author/${comment.id}", object : TypeToken<Author>() {})
-                        }
-                    }
+            getPosts(client)
+                .map { post ->
+                async {
+                    var postWithAll = PostWithAll(post, getAuthor(client, post.authorId), getCommentsWithAuthors(client, getComments(client, post.id)))
+                    println(postWithAll)
                 }
             }.awaitAll()
         }
-        Thread.sleep(10000L )
+        Thread.sleep(1000L)
     }
+
+    private suspend fun getPosts(client: OkHttpClient): List<Post> =
+        makeRequest(url = "$BASE_URL/api/slow/posts", client, object : TypeToken<List<Post>>() {})
+
+    private suspend fun getAuthor(client: OkHttpClient, entityId: Long): Author =
+        makeRequest(url = "$BASE_URL/api/slow/authors/$entityId", client, object : TypeToken<Author>() {})
+
+    private suspend fun getComments(client: OkHttpClient, postId: Long): List<Comment> =
+        makeRequest(url = "$BASE_URL/api/slow/posts/$postId/comments", client, object : TypeToken<List<Comment>>() {})
+
+    private suspend fun getCommentsWithAuthors(client: OkHttpClient, comments: List<Comment>): List<CommentWithAuthor> =
+        comments.map { comment ->
+            CommentWithAuthor(comment, getAuthor(client, comment.authorId))
+        }
