@@ -44,13 +44,20 @@ import kotlin.coroutines.suspendCoroutine
 
     fun main(){
         CoroutineScope(EmptyCoroutineContext).launch {
-            getPosts(client)
+            var posts = getPosts(client)
                 .map { post ->
-                async {
-                    var postWithAll = PostWithAll(post, getAuthor(client, post.authorId), getCommentsWithAuthors(client, getComments(client, post.id)))
-                    println(postWithAll)
-                }
+                    async {
+                         PostWithAll(post, getAuthor(client, post.authorId), getCommentsWithAuthors(client, getComments(client, post.id)))
+                    }
             }.awaitAll()
+            posts.forEach{ post ->
+                println(post.post)
+                println("--->${post.author}")
+                post.comments.forEach{comment ->
+                    println("------>${comment.comment}")
+                    println("--------->${comment.author}")
+                }
+            }
         }
         Thread.sleep(1000L)
     }
